@@ -32,7 +32,7 @@ public class TestPicSlurper {
 		System.out.println("output location: " + testOut);
 		testIn.delete();
 		testOut.delete();
-		FileUtils.copyStreamToFile(TestPicSlurper.class.getResourceAsStream("/images-100.txt"), testIn);
+		FileUtils.copyStreamToFile(TestPicSlurper.class.getResourceAsStream("/images-10.txt"), testIn);
 		
 		PicSlurper.main(new String[]{"-i",testIn.getAbsolutePath(),"-o",testOut.getAbsolutePath()});
 	}

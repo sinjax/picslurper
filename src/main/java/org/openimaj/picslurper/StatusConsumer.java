@@ -2,6 +2,7 @@ package org.openimaj.picslurper;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.concurrent.Callable;
 import java.util.regex.Matcher;
@@ -27,7 +28,8 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 	@Override
 	public StatusConsumption call() throws Exception {
 		StatusConsumption cons = new StatusConsumption();
-		cons.nTweets++;
+		cons.nTweets=1;
+		cons.nURLs=0;
 		
 		Matcher matcher = urlPattern.matcher(status.text);
 		while(matcher.find()){
@@ -38,32 +40,39 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 				cons.nImages++;
 			}
 		}
-		if(this.slurper.stats) updateStats(this.slurper.globalStatus,cons);
+		if(this.slurper.stats) PicSlurper.updateStats(this.slurper.globalStatus,cons);
 		return cons;
 	}
 	
-	private static synchronized void updateStats(File statsFile, StatusConsumption statusConsumption) throws IOException {
-		StatusConsumption current = IOUtils.read(statsFile,StatusConsumption.class);
-		current.incr(statusConsumption);
-		IOUtils.writeASCII(statsFile, current); // initialise the output file
-	}
-	
 	File resolveURL(URL url) {
-		System.out.println("Resolving url: " + url);
+		
 		MBFImage image = null;
 		try {
-			image = ImageUtilities.readMBF(url.openConnection().getInputStream());
+			HttpURLConnection conn = (HttpURLConnection)url.openConnection();
+	        conn.setConnectTimeout(15000);
+	        conn.setReadTimeout(15000);
+	        conn.setInstanceFollowRedirects(true);
+	        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows; U; Windows NT 6.0; ru; rv:1.9.0.11) Gecko/2009060215 Firefox/3.0.11 (.NET CLR 3.5.30729)");
+	        conn.connect();
+			image = ImageUtilities.readMBF(conn.getInputStream());
 		} catch (Throwable e) { // This input might not be an image! deal with that
-			return null;
+			System.out.println("Resolving url: " + url + " FAILED");
+			return null; 
 		}
 		File outputDir;
 		try {
 			outputDir = urlToOutput(url,slurper.outputLocation);
 			File outImage = new File(outputDir,"image.png");
+			File outStats = new File(outputDir,"status.txt");
+			StatusConsumption cons = new StatusConsumption();
+			cons.nTweets++;
+			PicSlurper.updateStats(outStats,cons);
 			ImageUtilities.write(image, outImage);
+			System.out.println("Resolving url: " + url + " SUCCESS");
 			return outputDir;
 		} catch (IOException e) {
 		}
+		System.out.println("Resolving url: " + url + " FAILED");
 		return null;
 		
 	}
@@ -76,7 +85,9 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 		String outPath = outputLocation.getAbsolutePath() + File.separator + urlPath;
 		File outFile = new File(outPath);
 		if(outFile.exists()){
-			if(outFile.isDirectory()) return outFile;
+			if(outFile.isDirectory()) {
+				return outFile;
+			}
 			else{
 				createURLOutDir(outFile);
 			}

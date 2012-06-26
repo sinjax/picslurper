@@ -26,8 +26,8 @@ class StatusConsumption implements ReadWriteableASCII{
 	@Override
 	public void writeASCII(PrintWriter out) throws IOException {
 		out.printf("nURLS: %d\n",nURLs);
-		out.printf("nTweets: %d\n",nImages);
-		out.printf("nImages: %d\n",nTweets);
+		out.printf("nImages: %d\n",nImages);
+		out.printf("nTweets: %d\n",nTweets);
 	}
 	public void incr(StatusConsumption other){
 		this.nImages += other.nImages;
