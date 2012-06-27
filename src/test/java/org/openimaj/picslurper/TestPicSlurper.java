@@ -36,4 +36,9 @@ public class TestPicSlurper {
 		
 		PicSlurper.main(new String[]{"-i",testIn.getAbsolutePath(),"-o",testOut.getAbsolutePath()});
 	}
+	
+	public void testURLStream(){
+		PicSlurper slurper = new PicSlurper();
+		slurper.
+	}
 }

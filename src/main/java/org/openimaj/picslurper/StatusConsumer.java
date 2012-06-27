@@ -2,6 +2,7 @@ package org.openimaj.picslurper;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.concurrent.Callable;
@@ -48,13 +49,7 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 		
 		MBFImage image = null;
 		try {
-			HttpURLConnection conn = (HttpURLConnection)url.openConnection();
-	        conn.setConnectTimeout(15000);
-	        conn.setReadTimeout(15000);
-	        conn.setInstanceFollowRedirects(true);
-	        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows; U; Windows NT 6.0; ru; rv:1.9.0.11) Gecko/2009060215 Firefox/3.0.11 (.NET CLR 3.5.30729)");
-	        conn.connect();
-			image = ImageUtilities.readMBF(conn.getInputStream());
+			image = ImageUtilities.readMBF(urlAsStream(url));
 		} catch (Throwable e) { // This input might not be an image! deal with that
 			System.out.println("Resolving url: " + url + " FAILED");
 			return null; 
@@ -76,6 +71,17 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 		return null;
 		
 	}
+	public static InputStream urlAsStream(URL url) throws IOException {
+		HttpURLConnection conn = (HttpURLConnection)url.openConnection();
+        conn.setConnectTimeout(15000);
+        conn.setReadTimeout(15000);
+        conn.setInstanceFollowRedirects(true);
+        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows; U; Windows NT 6.0; ru; rv:1.9.0.11) Gecko/2009060215 Firefox/3.0.11 (.NET CLR 3.5.30729)");
+        conn.connect();
+        InputStream stream = conn.getInputStream();
+        return stream;
+	}
+
 	static synchronized File urlToOutput(URL url, File outputLocation) throws IOException {
 		String urlPath = url.getProtocol() + File.separator +
 						 url.getHost() + File.separator;
