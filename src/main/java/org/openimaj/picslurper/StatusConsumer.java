@@ -4,10 +4,13 @@ import java.io.File;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.apache.commons.httpclient.HttpClient;
 import org.openimaj.image.ImageUtilities;
 import org.openimaj.image.MBFImage;
 import org.openimaj.io.IOUtils;
@@ -30,7 +33,7 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 		StatusConsumption cons = new StatusConsumption();
 		cons.nTweets=1;
 		cons.nURLs=0;
-		
+		// match the text URLs
 		Matcher matcher = urlPattern.matcher(status.text);
 		while(matcher.find()){
 			cons.nURLs++;
@@ -40,6 +43,21 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 				cons.nImages++;
 			}
 		}
+		// check entities media
+		@SuppressWarnings("unchecked")
+		List<Map<String,Object>> media = (List<Map<String, Object>>) status.entities.get("media");
+		for (Map<String, Object> map : media) {
+			if(map.containsKey("type") && map.get("type").equals("photo")){
+				resolveURL(new URL((String) map.get("media_url")));
+			}
+		}
+		// check the parsed URL entities 
+		List<Map<String,Object>> urls = (List<Map<String, Object>>) status.entities.get("urls");
+		for (Map<String, Object> map : media) {
+			resolveURL(new URL((String) map.get("expanded_url")));
+		}
+		
+		
 		if(this.slurper.stats) PicSlurper.updateStats(this.slurper.globalStatus,cons);
 		return cons;
 	}
@@ -48,6 +66,8 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 		
 		MBFImage image = null;
 		try {
+			HttpClient client = new HttpClient();
+			HttpGet httpget = new HttpGet(url);
 			HttpURLConnection conn = (HttpURLConnection)url.openConnection();
 	        conn.setConnectTimeout(15000);
 	        conn.setReadTimeout(15000);
