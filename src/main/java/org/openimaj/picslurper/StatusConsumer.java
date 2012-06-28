@@ -5,23 +5,28 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.apache.commons.httpclient.HttpClient;
 import org.openimaj.image.ImageUtilities;
 import org.openimaj.image.MBFImage;
+import org.openimaj.io.FileUtils;
 import org.openimaj.io.IOUtils;
 import org.openimaj.text.nlp.patterns.URLPatternProvider;
 import org.openimaj.twitter.TwitterStatus;
+import org.openimaj.twitter.USMFStatus;
 
 public class StatusConsumer implements Callable<StatusConsumption>{
 	
 	final static Pattern urlPattern = new URLPatternProvider().pattern();
-	private TwitterStatus status;
+	private USMFStatus status;
 	private PicSlurper slurper;
 
-	public StatusConsumer(TwitterStatus status,PicSlurper slurper) {
+	public StatusConsumer(USMFStatus status,PicSlurper slurper) {
 		this.status = status;
 		this.slurper = slurper;
 	}
@@ -31,7 +36,7 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 		StatusConsumption cons = new StatusConsumption();
 		cons.nTweets=1;
 		cons.nURLs=0;
-		
+		// match the text URLs
 		Matcher matcher = urlPattern.matcher(status.text);
 		while(matcher.find()){
 			cons.nURLs++;
@@ -39,19 +44,75 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 			File urlOut = resolveURL(new URL(urlString));
 			if(urlOut!=null){
 				cons.nImages++;
+				PicSlurper.updateTweets(urlOut,status);
 			}
 		}
+		// check entities media
+		@SuppressWarnings("unchecked")
+		List<Map<String,Object>> media = (List<Map<String, Object>>) status.links.get("media");
+		for (Map<String, Object> map : media) {
+			if(map.containsKey("type") && map.get("type").equals("photo")){
+				File urlOut = resolveURL(new URL((String) map.get("media_url")));
+				if(urlOut!=null){
+					cons.nImages++;
+				}
+			}
+		}
+		// check the parsed URL entities 
+		List<Map<String,Object>> urls = (List<Map<String, Object>>) status.entities.get("urls");
+		for (Map<String, Object> map : media) {
+			File urlOut = resolveURL(new URL((String) map.get("expanded_url")));
+			if(urlOut!=null){
+				cons.nImages++;
+			}
+		}
+		
+		
 		if(this.slurper.stats) PicSlurper.updateStats(this.slurper.globalStatus,cons);
 		return cons;
+	}
+	
+	public static String getMetaRefresh(String html) {
+		String meta = null;
+		int start = html.toLowerCase().indexOf("<meta http-equiv=\"refresh\" content=\"");
+		if (start > -1) {
+			start += 36;
+			int end = html.indexOf('"', start);
+			if (end > -1) {
+				meta = html.substring(start, end);
+				start = meta.toLowerCase().indexOf("url=");
+				if (start > -1) {
+					start += 4;
+					meta = new String(meta.substring(start));
+				}
+			}
+		}
+
+		return meta;
 	}
 	
 	File resolveURL(URL url) {
 		
 		MBFImage image = null;
 		try {
-			image = ImageUtilities.readMBF(urlAsStream(url));
+			String meta = null;
+			HttpURLConnection connection = urlAsStream(url);
+			if(connection.getContentType().startsWith("text")){
+				// check if there is a meta refresh, if so, try to resolve again
+				meta = getMetaRefresh(FileUtils.readall(connection.getInputStream()));
+				if(meta!=null){
+					return resolveURL(new URL(meta));
+				}else{
+					System.out.println("Resolving url: " + url + " FAILED (text) ");
+					return null;//text, can't handle it!
+				}
+			}
+			else{
+				// Not text? try reading it as an image!
+				image = ImageUtilities.readMBF(connection.getInputStream());
+			}
 		} catch (Throwable e) { // This input might not be an image! deal with that
-			System.out.println("Resolving url: " + url + " FAILED");
+			System.out.println("Resolving url: " + url + " FAILED (read fail)");
 			return null; 
 		}
 		File outputDir;
@@ -67,19 +128,27 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 			return outputDir;
 		} catch (IOException e) {
 		}
-		System.out.println("Resolving url: " + url + " FAILED");
+		System.out.println("Resolving url: " + url + " FAILED (write fail?)");
 		return null;
 		
 	}
-	public static InputStream urlAsStream(URL url) throws IOException {
+	public static HttpURLConnection urlAsStream(URL url) throws IOException {
+//		HttpClient client = new HttpClient();
+//		HttpGet httpget = new HttpGet(url);
+//		HttpURLConnection conn = (HttpURLConnection)url.openConnection();
+//		conn.setConnectTimeout(15000);
+//		conn.setReadTimeout(15000);
+//		conn.setInstanceFollowRedirects(true);
+//		conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows; U; Windows NT 6.0; ru; rv:1.9.0.11) Gecko/2009060215 Firefox/3.0.11 (.NET CLR 3.5.30729)");
+//		conn.connect();
 		HttpURLConnection conn = (HttpURLConnection)url.openConnection();
         conn.setConnectTimeout(15000);
         conn.setReadTimeout(15000);
         conn.setInstanceFollowRedirects(true);
         conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows; U; Windows NT 6.0; ru; rv:1.9.0.11) Gecko/2009060215 Firefox/3.0.11 (.NET CLR 3.5.30729)");
         conn.connect();
-        InputStream stream = conn.getInputStream();
-        return stream;
+        
+        return conn;
 	}
 
 	static synchronized File urlToOutput(URL url, File outputLocation) throws IOException {

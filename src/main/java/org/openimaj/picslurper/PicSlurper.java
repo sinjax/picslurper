@@ -3,9 +3,12 @@ package org.openimaj.picslurper;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PrintWriter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -21,12 +24,16 @@ import org.openimaj.io.IOUtils;
 import org.openimaj.text.nlp.TweetTokeniserException;
 import org.openimaj.tools.FileToolsUtil;
 import org.openimaj.tools.InOutToolOptions;
+import org.openimaj.twitter.GeneralJSONTwitter;
 import org.openimaj.twitter.TwitterStatus;
+import org.openimaj.twitter.USMFStatus;
 import org.openimaj.twitter.collection.StreamTwitterStatusList;
 import org.openimaj.twitter.collection.TwitterStatusList;
+import org.openimaj.util.list.AbstractStreamBackedList;
 
 public class PicSlurper extends InOutToolOptions implements Iterable<InputStream>, Iterator<InputStream>{
 	
+	private static String TWEET_FILE_NAME = "tweets.json";
 	String[] args;
 	boolean stdin;
 	List<File> inputFiles;
@@ -170,8 +177,8 @@ public class PicSlurper extends InOutToolOptions implements Iterable<InputStream
 			if(countFutures() > MAX_QUEUED_JOBS){
 				waitForFutures(service); // is this a good idea? should we skip tweets instead?
 			}
-			TwitterStatusList<TwitterStatus> tweets = StreamTwitterStatusList.read(inStream, this.encoding);
-			for (TwitterStatus status : tweets) {
+			AbstractStreamBackedList<GeneralJSONTwitter> tweets = new AbstractStreamBackedList<GeneralJSONTwitter>();
+			for (USMFStatus status : tweets) {
 				futureList.add(service.submit(consumeStatus(status)));
 			}
 		}
@@ -197,7 +204,7 @@ public class PicSlurper extends InOutToolOptions implements Iterable<InputStream
 		return this.futureList.size();
 	}
 
-	StatusConsumer consumeStatus(TwitterStatus status) throws IOException {
+	StatusConsumer consumeStatus(USMFStatus status) throws IOException {
 		return new StatusConsumer(status,this);
 	}
 
@@ -212,12 +219,23 @@ public class PicSlurper extends InOutToolOptions implements Iterable<InputStream
 		current.incr(statusConsumption);
 		IOUtils.writeASCII(statsFile, current); // initialise the output file
 	}
+	public static synchronized void updateTweets(File outRoot, USMFStatus status) throws IOException {
+		File outFile = new File(outRoot,TWEET_FILE_NAME);
+		FileWriter fstream = new FileWriter(outFile,true);
+		PrintWriter pwriter = new PrintWriter(fstream);
+		status.writeASCIIAnalysis(pwriter, new ArrayList<String>(), Arrays.asList("text","created_at","id"));
+		pwriter.println();
+		pwriter.flush();
+		pwriter.close();
+	}
 	
 	public static void main(String[] args) throws IOException, TweetTokeniserException, InterruptedException {
 		PicSlurper slurper = new PicSlurper(args);
 		slurper.prepare();
 		slurper.start();
 	}
+
+	
 
 	
 

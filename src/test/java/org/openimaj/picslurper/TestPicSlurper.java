@@ -1,6 +1,9 @@
 package org.openimaj.picslurper;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.MalformedURLException;
 import java.net.URL;
 
 import org.junit.Test;
@@ -37,8 +40,10 @@ public class TestPicSlurper {
 		PicSlurper.main(new String[]{"-i",testIn.getAbsolutePath(),"-o",testOut.getAbsolutePath()});
 	}
 	
-	public void testURLStream(){
-		PicSlurper slurper = new PicSlurper();
-		slurper.
+	@Test
+	public void testURLStream() throws MalformedURLException, IOException{
+		InputStream stream = StatusConsumer.urlAsStream(new URL("http://t.co/Hbp0Ff6D")).getInputStream();
+		System.out.println(FileUtils.readall(stream));
+		stream = StatusConsumer.urlAsStream(new URL("http://p.twimg.com/AwbLNdpCQAEgj5J.jpg")).getInputStream();
 	}
 }
