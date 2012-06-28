@@ -9,6 +9,7 @@ import java.net.URL;
 import org.junit.Test;
 import org.openimaj.io.FileUtils;
 import org.openimaj.io.IOUtils;
+import org.openimaj.picslurper.consumer.InstagramConsumer;
 
 public class TestPicSlurper {
 	
@@ -44,6 +45,13 @@ public class TestPicSlurper {
 	public void testURLStream() throws MalformedURLException, IOException{
 		InputStream stream = StatusConsumer.urlAsStream(new URL("http://t.co/Hbp0Ff6D")).getInputStream();
 		System.out.println(FileUtils.readall(stream));
-		stream = StatusConsumer.urlAsStream(new URL("http://p.twimg.com/AwbLNdpCQAEgj5J.jpg")).getInputStream();
+//		stream = StatusConsumer.urlAsStream(new URL("http://p.twimg.com/AwbLNdpCQAEgj5J.jpg")).getInputStream();
+		stream = StatusConsumer.urlAsStream(new URL("http://bit.ly/cLYhL")).getInputStream();
+		System.out.println(FileUtils.readall(stream));
+	}
+	@Test
+	public void testInstagramConsumer() throws Exception {
+		InstagramConsumer consumer = new InstagramConsumer();
+		System.out.println(consumer.consume(new URL("http://instagr.am/p/MbsBS_SkJo/")));
 	}
 }

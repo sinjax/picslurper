@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -16,6 +17,7 @@ import org.openimaj.image.ImageUtilities;
 import org.openimaj.image.MBFImage;
 import org.openimaj.io.FileUtils;
 import org.openimaj.io.IOUtils;
+import org.openimaj.picslurper.consumer.InstagramConsumer;
 import org.openimaj.text.nlp.patterns.URLPatternProvider;
 import org.openimaj.twitter.USMFStatus;
 import org.openimaj.twitter.collection.StreamJSONStatusList.ReadableWritableJSON;
@@ -25,12 +27,19 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 	final static Pattern urlPattern = new URLPatternProvider().pattern();
 	private ReadableWritableJSON status;
 	private PicSlurper slurper;
+	private List<SiteSpecificConsumer> siteSpecific;
 
 	public StatusConsumer(ReadableWritableJSON status,PicSlurper slurper) {
 		this.status = status;
 		this.slurper = slurper;
+		this.siteSpecific = new ArrayList<SiteSpecificConsumer>();
+		this.siteSpecific.add(new InstagramConsumer());
 	}
 	
+	public StatusConsumer() {
+		this(null,null);
+	}
+
 	@Override
 	@SuppressWarnings("unchecked")
 	public StatusConsumption call() throws Exception {
@@ -93,29 +102,36 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 		return meta;
 	}
 	
-	File resolveURL(URL url) {
+	public File resolveURL(URL url) {
 		
 		MBFImage image = null;
-		try {
-			String meta = null;
-			HttpURLConnection connection = urlAsStream(url);
-			if(connection.getContentType().startsWith("text")){
-				// check if there is a meta refresh, if so, try to resolve again
-				meta = getMetaRefresh(FileUtils.readall(connection.getInputStream()));
-				if(meta!=null){
-					return resolveURL(new URL(meta));
-				}else{
-					System.out.println("Resolving url: " + url + " FAILED (text) ");
-					return null;//text, can't handle it!
+		for (SiteSpecificConsumer consumer : this.siteSpecific) {
+			if(consumer .canConsume(url)){
+				image = consumer.consume(url);
+			}
+		}
+		if(image == null){
+			try {
+				String meta = null;
+				HttpURLConnection connection = urlAsStream(url);
+				if(connection.getContentType().startsWith("text")){
+					// check if there is a meta refresh, if so, try to resolve again
+					meta = getMetaRefresh(FileUtils.readall(connection.getInputStream()));
+					if(meta!=null){
+						return resolveURL(new URL(meta));
+					}else{
+						System.out.println("Resolving url: " + url + " FAILED (text) ");
+						return null;//text, can't handle it!
+					}
 				}
+				else{
+					// Not text? try reading it as an image!
+					image = ImageUtilities.readMBF(connection.getInputStream());
+				}
+			} catch (Throwable e) { // This input might not be an image! deal with that
+				System.out.println("Resolving url: " + url + " FAILED (read fail)");
+				return null; 
 			}
-			else{
-				// Not text? try reading it as an image!
-				image = ImageUtilities.readMBF(connection.getInputStream());
-			}
-		} catch (Throwable e) { // This input might not be an image! deal with that
-			System.out.println("Resolving url: " + url + " FAILED (read fail)");
-			return null; 
 		}
 		File outputDir;
 		try {
