@@ -16,6 +16,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.hadoop.mapred.join.StreamBackedIterator;
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
 import org.kohsuke.args4j.Option;
@@ -25,8 +26,9 @@ import org.openimaj.text.nlp.TweetTokeniserException;
 import org.openimaj.tools.FileToolsUtil;
 import org.openimaj.tools.InOutToolOptions;
 import org.openimaj.twitter.GeneralJSONTwitter;
-import org.openimaj.twitter.TwitterStatus;
 import org.openimaj.twitter.USMFStatus;
+import org.openimaj.twitter.collection.StreamJSONStatusList;
+import org.openimaj.twitter.collection.StreamJSONStatusList.ReadableWritableJSON;
 import org.openimaj.twitter.collection.StreamTwitterStatusList;
 import org.openimaj.twitter.collection.TwitterStatusList;
 import org.openimaj.util.list.AbstractStreamBackedList;
@@ -177,8 +179,8 @@ public class PicSlurper extends InOutToolOptions implements Iterable<InputStream
 			if(countFutures() > MAX_QUEUED_JOBS){
 				waitForFutures(service); // is this a good idea? should we skip tweets instead?
 			}
-			AbstractStreamBackedList<GeneralJSONTwitter> tweets = new AbstractStreamBackedList<GeneralJSONTwitter>();
-			for (USMFStatus status : tweets) {
+			StreamJSONStatusList tweets = StreamJSONStatusList.read(inStream, "UTF-8");
+			for (ReadableWritableJSON status : tweets) {
 				futureList.add(service.submit(consumeStatus(status)));
 			}
 		}
@@ -204,7 +206,7 @@ public class PicSlurper extends InOutToolOptions implements Iterable<InputStream
 		return this.futureList.size();
 	}
 
-	StatusConsumer consumeStatus(USMFStatus status) throws IOException {
+	StatusConsumer consumeStatus(ReadableWritableJSON status) throws IOException {
 		return new StatusConsumer(status,this);
 	}
 
@@ -219,11 +221,11 @@ public class PicSlurper extends InOutToolOptions implements Iterable<InputStream
 		current.incr(statusConsumption);
 		IOUtils.writeASCII(statsFile, current); // initialise the output file
 	}
-	public static synchronized void updateTweets(File outRoot, USMFStatus status) throws IOException {
+	public static synchronized void updateTweets(File outRoot, ReadableWritableJSON status) throws IOException {
 		File outFile = new File(outRoot,TWEET_FILE_NAME);
 		FileWriter fstream = new FileWriter(outFile,true);
 		PrintWriter pwriter = new PrintWriter(fstream);
-		status.writeASCIIAnalysis(pwriter, new ArrayList<String>(), Arrays.asList("text","created_at","id"));
+		status.writeASCII(pwriter);
 		pwriter.println();
 		pwriter.flush();
 		pwriter.close();

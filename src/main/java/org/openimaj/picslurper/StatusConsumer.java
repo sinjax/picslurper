@@ -17,30 +17,32 @@ import org.openimaj.image.MBFImage;
 import org.openimaj.io.FileUtils;
 import org.openimaj.io.IOUtils;
 import org.openimaj.text.nlp.patterns.URLPatternProvider;
-import org.openimaj.twitter.TwitterStatus;
 import org.openimaj.twitter.USMFStatus;
+import org.openimaj.twitter.collection.StreamJSONStatusList.ReadableWritableJSON;
 
 public class StatusConsumer implements Callable<StatusConsumption>{
 	
 	final static Pattern urlPattern = new URLPatternProvider().pattern();
-	private USMFStatus status;
+	private ReadableWritableJSON status;
 	private PicSlurper slurper;
 
-	public StatusConsumer(USMFStatus status,PicSlurper slurper) {
+	public StatusConsumer(ReadableWritableJSON status,PicSlurper slurper) {
 		this.status = status;
 		this.slurper = slurper;
 	}
 	
 	@Override
+	@SuppressWarnings("unchecked")
 	public StatusConsumption call() throws Exception {
 		StatusConsumption cons = new StatusConsumption();
 		cons.nTweets=1;
 		cons.nURLs=0;
 		// match the text URLs
-		Matcher matcher = urlPattern.matcher(status.text);
+		String text = (String) status.get("text");
+		Matcher matcher = urlPattern.matcher((String) text);
 		while(matcher.find()){
 			cons.nURLs++;
-			String urlString = status.text.substring(matcher.start(),matcher.end());
+			String urlString = text.substring(matcher.start(),matcher.end());
 			File urlOut = resolveURL(new URL(urlString));
 			if(urlOut!=null){
 				cons.nImages++;
@@ -49,7 +51,7 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 		}
 		// check entities media
 		@SuppressWarnings("unchecked")
-		List<Map<String,Object>> media = (List<Map<String, Object>>) status.links.get("media");
+		List<Map<String,Object>> media = (List<Map<String, Object>>) ((Map<String, Object>)status.get("links")).get("media");
 		for (Map<String, Object> map : media) {
 			if(map.containsKey("type") && map.get("type").equals("photo")){
 				File urlOut = resolveURL(new URL((String) map.get("media_url")));
@@ -58,8 +60,8 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 				}
 			}
 		}
-		// check the parsed URL entities 
-		List<Map<String,Object>> urls = (List<Map<String, Object>>) status.entities.get("urls");
+		// check the parsed URL entities
+		List<Map<String,Object>> urls = (List<Map<String, Object>>) ((Map<String, Object>)status.get("entities")).get("urls");
 		for (Map<String, Object> map : media) {
 			File urlOut = resolveURL(new URL((String) map.get("expanded_url")));
 			if(urlOut!=null){
