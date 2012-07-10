@@ -10,12 +10,14 @@ import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.log4j.Level;
+import org.apache.log4j.Logger;
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
 import org.kohsuke.args4j.Option;
@@ -29,15 +31,12 @@ import org.openimaj.twitter.collection.StreamJSONStatusList.ReadableWritableJSON
 
 import backtype.storm.Config;
 import backtype.storm.LocalCluster;
-import backtype.storm.task.TopologyContext;
-import backtype.storm.topology.BasicOutputCollector;
-import backtype.storm.topology.IBasicBolt;
-import backtype.storm.topology.OutputFieldsDeclarer;
 import backtype.storm.topology.TopologyBuilder;
-import backtype.storm.tuple.Tuple;
 
 public class PicSlurper extends InOutToolOptions implements Iterable<InputStream>, Iterator<InputStream>{
-	
+	static{
+		Logger.getRootLogger().setLevel(Level.ERROR);
+	}
 	private static String TWEET_FILE_NAME = "tweets.json";
 	String[] args;
 	boolean stdin;
@@ -107,7 +106,7 @@ public class PicSlurper extends InOutToolOptions implements Iterable<InputStream
 			}
 			else
 			{
-				this.outputLocation = validateLocalOutput(this.getOutput(),this.isForce(),this.isContinue());
+				this.outputLocation = validateLocalOutput(this.getOutput(),this.isForce(),!this.isContinue());
 				this.outputLocation.mkdirs();
 				this.globalStatus = new File(outputLocation,STATUS_FILE_NAME);
 				updateStats(this.globalStatus, new StatusConsumption()); // initialise the output file
@@ -178,19 +177,27 @@ public class PicSlurper extends InOutToolOptions implements Iterable<InputStream
 	
 	void start() throws IOException, TweetTokeniserException, InterruptedException {
 		if(useStorm){
-			// instantiate a storm topology fed by the command line input stream
-			for (InputStream stream : this) {
-				TopologyBuilder builder = new TopologyBuilder();
-				InputStreamSpout streamSpout = new InputStreamSpout(stream);
-				builder.setSpout("stream_spout", streamSpout);
-				builder.setBolt("print", new PrintBolt()).shuffleGrouping("stream_spout");
-				LocalCluster cluster = new LocalCluster();
-				Config conf = new Config();
-		        conf.setDebug(false);
-				cluster.submitTopology("word-count", conf, builder.createTopology());
-				this.wait();
-				cluster.shutdown();
+			final LocalCluster cluster = new LocalCluster();
+			LocalTweetSpout spout = null;
+			if(this.stdin){
+				spout = new StdinSpout();
 			}
+			else{
+				spout = new LocalFileTweetSpout(this.getAllInputs());
+			}
+			TopologyBuilder builder = new TopologyBuilder();
+			builder.setSpout("stream_spout", spout);
+//				builder.setBolt("print", new PrintBolt()).shuffleGrouping("stream_spout");
+			builder.setBolt("download", new DownloadBolt(this.stats,this.globalStatus,this.outputLocation),this.nThreads).shuffleGrouping("stream_spout");
+			
+			Config conf = new Config();
+	        conf.setDebug(false);
+			cluster.submitTopology("urltop", conf, builder.createTopology());
+			while(!LocalTweetSpout.isFinished()){
+				Thread.sleep(10000);
+			}
+			System.out.println("TweetSpout says it is finished, shutting down cluster");
+			cluster.shutdown();
 			
 		}
 		else{			
@@ -219,7 +226,7 @@ public class PicSlurper extends InOutToolOptions implements Iterable<InputStream
 	}
 
 	private int countFutures() {
-		for (Iterator iterator = this.futureList.iterator(); iterator.hasNext();) {
+		for (Iterator<Future<?>> iterator = this.futureList.iterator(); iterator.hasNext();) {
 			Future<?> type = (Future<?>) iterator.next();
 			if(type.isDone()) iterator.remove();
 			
@@ -228,7 +235,7 @@ public class PicSlurper extends InOutToolOptions implements Iterable<InputStream
 	}
 
 	StatusConsumer consumeStatus(ReadableWritableJSON status) throws IOException {
-		return new StatusConsumer(status,this);
+		return new StatusConsumer(status,this.stats,this.globalStatus,this.outputLocation);
 	}
 
 	@Override
@@ -253,9 +260,20 @@ public class PicSlurper extends InOutToolOptions implements Iterable<InputStream
 	}
 	
 	public static void main(String[] args) throws IOException, TweetTokeniserException, InterruptedException {
+		// Load the config
+		loadConfig();
 		PicSlurper slurper = new PicSlurper(args);
 		slurper.prepare();
 		slurper.start();
+	}
+
+	public static void loadConfig() throws FileNotFoundException, IOException {
+		File configFile = new File("config.properties");
+		if(configFile.exists()){
+			Properties prop = System.getProperties();
+			prop.load(new FileInputStream(configFile));
+			System.setProperties(prop);
+		}
 	}
 
 	

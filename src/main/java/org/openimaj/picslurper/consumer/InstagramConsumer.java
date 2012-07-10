@@ -2,6 +2,8 @@ package org.openimaj.picslurper.consumer;
 
 import java.io.InputStreamReader;
 import java.net.URL;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 import org.openimaj.image.ImageUtilities;
@@ -20,7 +22,7 @@ public class InstagramConsumer implements SiteSpecificConsumer {
 	}
 
 	@Override
-	public MBFImage consume(URL url) {
+	public List<MBFImage> consume(URL url) {
 		String file = url.getFile();
 		if(file.endsWith("/"))file = file.substring(0, file.length()-1);
 		String[] splits = file.split("/");
@@ -30,13 +32,10 @@ public class InstagramConsumer implements SiteSpecificConsumer {
 			@SuppressWarnings("unchecked")
 			Map<String,Object> res = gson.fromJson(new InputStreamReader(new URL(apiCall).openConnection().getInputStream()), Map.class);
 			String instagramURL = (String) res.get("url");
-			System.out.println("Consuming Instagram URL " + url +"... success!");
-			return ImageUtilities.readMBF(new URL(instagramURL));
-		} catch (Exception e) {
-			
+			return Arrays.asList(ImageUtilities.readMBF(new URL(instagramURL)));
+		} catch (Exception e) {			
+			return null;
 		}
-		System.out.println("Consuming Instagram URL " + url +"... failed!");
-		return null;
 	}
 
 }

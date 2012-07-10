@@ -2,42 +2,48 @@ package org.openimaj.picslurper;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.apache.commons.httpclient.HttpClient;
 import org.openimaj.image.ImageUtilities;
 import org.openimaj.image.MBFImage;
 import org.openimaj.io.FileUtils;
-import org.openimaj.io.IOUtils;
 import org.openimaj.picslurper.consumer.InstagramConsumer;
+import org.openimaj.picslurper.consumer.TmblrPhotoConsumer;
+import org.openimaj.picslurper.consumer.TwitPicConsumer;
+import org.openimaj.picslurper.consumer.TwitterPhotoConsumer;
 import org.openimaj.text.nlp.patterns.URLPatternProvider;
-import org.openimaj.twitter.USMFStatus;
 import org.openimaj.twitter.collection.StreamJSONStatusList.ReadableWritableJSON;
 
 public class StatusConsumer implements Callable<StatusConsumption>{
 	
 	final static Pattern urlPattern = new URLPatternProvider().pattern();
 	private ReadableWritableJSON status;
-	private PicSlurper slurper;
 	private List<SiteSpecificConsumer> siteSpecific;
+	private boolean outputStats;
+	private File globalStats;
+	private File outputLocation;
 
-	public StatusConsumer(ReadableWritableJSON status,PicSlurper slurper) {
+	public StatusConsumer(ReadableWritableJSON status, boolean outputStats, File globalStats, File outputLocation) {
 		this.status = status;
-		this.slurper = slurper;
+		this.outputStats = outputStats;
+		this.globalStats = globalStats;
+		this.outputLocation =outputLocation;
 		this.siteSpecific = new ArrayList<SiteSpecificConsumer>();
 		this.siteSpecific.add(new InstagramConsumer());
+		this.siteSpecific.add(new TwitterPhotoConsumer());
+		this.siteSpecific.add(new TmblrPhotoConsumer());
+		this.siteSpecific.add(new TwitPicConsumer());
 	}
 	
 	public StatusConsumer() {
-		this(null,null);
 	}
 
 	@Override
@@ -59,7 +65,6 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 			}
 		}
 		// check entities media
-		@SuppressWarnings("unchecked")
 		List<Map<String,Object>> media = (List<Map<String, Object>>) ((Map<String, Object>)status.get("links")).get("media");
 		for (Map<String, Object> map : media) {
 			if(map.containsKey("type") && map.get("type").equals("photo")){
@@ -71,7 +76,7 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 		}
 		// check the parsed URL entities
 		List<Map<String,Object>> urls = (List<Map<String, Object>>) ((Map<String, Object>)status.get("entities")).get("urls");
-		for (Map<String, Object> map : media) {
+		for (Map<String, Object> map : urls) {
 			File urlOut = resolveURL(new URL((String) map.get("expanded_url")));
 			if(urlOut!=null){
 				cons.nImages++;
@@ -79,7 +84,7 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 		}
 		
 		
-		if(this.slurper.stats) PicSlurper.updateStats(this.slurper.globalStatus,cons);
+		if(this.outputStats) PicSlurper.updateStats(this.globalStats,cons);
 		return cons;
 	}
 	
@@ -104,7 +109,7 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 	
 	public File resolveURL(URL url) {
 		
-		MBFImage image = null;
+		List<MBFImage> image = null;
 		for (SiteSpecificConsumer consumer : this.siteSpecific) {
 			if(consumer .canConsume(url)){
 				image = consumer.consume(url);
@@ -126,7 +131,7 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 				}
 				else{
 					// Not text? try reading it as an image!
-					image = ImageUtilities.readMBF(connection.getInputStream());
+					image = Arrays.asList(ImageUtilities.readMBF(connection.getInputStream()));
 				}
 			} catch (Throwable e) { // This input might not be an image! deal with that
 				System.out.println("Resolving url: " + url + " FAILED (read fail)");
@@ -135,16 +140,20 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 		}
 		File outputDir;
 		try {
-			outputDir = urlToOutput(url,slurper.outputLocation);
-			File outImage = new File(outputDir,"image.png");
+			outputDir = urlToOutput(url,this.outputLocation);
 			File outStats = new File(outputDir,"status.txt");
 			StatusConsumption cons = new StatusConsumption();
 			cons.nTweets++;
 			PicSlurper.updateStats(outStats,cons);
-			ImageUtilities.write(image, outImage);
+			int n = 0;
+			for (MBFImage mbfImage : image) {
+				File outImage = new File(outputDir,String.format("image_%d.png",n++));
+				ImageUtilities.write(mbfImage, outImage);
+			}
 			System.out.println("Resolving url: " + url + " SUCCESS");
 			return outputDir;
 		} catch (IOException e) {
+			e.printStackTrace();
 		}
 		System.out.println("Resolving url: " + url + " FAILED (write fail?)");
 		return null;
