@@ -8,15 +8,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
-import org.apache.hadoop.mapred.join.StreamBackedIterator;
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
 import org.kohsuke.args4j.Option;
@@ -25,13 +24,17 @@ import org.openimaj.io.IOUtils;
 import org.openimaj.text.nlp.TweetTokeniserException;
 import org.openimaj.tools.FileToolsUtil;
 import org.openimaj.tools.InOutToolOptions;
-import org.openimaj.twitter.GeneralJSONTwitter;
-import org.openimaj.twitter.USMFStatus;
 import org.openimaj.twitter.collection.StreamJSONStatusList;
 import org.openimaj.twitter.collection.StreamJSONStatusList.ReadableWritableJSON;
-import org.openimaj.twitter.collection.StreamTwitterStatusList;
-import org.openimaj.twitter.collection.TwitterStatusList;
-import org.openimaj.util.list.AbstractStreamBackedList;
+
+import backtype.storm.Config;
+import backtype.storm.LocalCluster;
+import backtype.storm.task.TopologyContext;
+import backtype.storm.topology.BasicOutputCollector;
+import backtype.storm.topology.IBasicBolt;
+import backtype.storm.topology.OutputFieldsDeclarer;
+import backtype.storm.topology.TopologyBuilder;
+import backtype.storm.tuple.Tuple;
 
 public class PicSlurper extends InOutToolOptions implements Iterable<InputStream>, Iterator<InputStream>{
 	
@@ -53,11 +56,11 @@ public class PicSlurper extends InOutToolOptions implements Iterable<InputStream
 	@Option(name="--no-stats", aliases="-ns", required=false, usage="Don't try to keep stats of the tweets seen", metaVar="STRING")
 	boolean stats = true;
 	
-	@Option(name="--no-continue", aliases="-nc", required=false, usage="Do not continue an existing output", metaVar="STRING")
-	boolean contin = true;
-	
 	@Option(name="--no-threads", aliases="-j", required=false, usage="Threads used to download images, defaults to n CPUs", metaVar="STRING")
 	int nThreads = Runtime.getRuntime().availableProcessors();
+	
+	@Option(name="--use-storm", aliases="-s", required=false, usage="Use storm to parallelise", metaVar="STRING")
+	boolean useStorm = false;
 	
 
 	public PicSlurper(String[] args) {
@@ -104,7 +107,7 @@ public class PicSlurper extends InOutToolOptions implements Iterable<InputStream
 			}
 			else
 			{
-				this.outputLocation = validateLocalOutput(this.getOutput(),this.isForce(),this.contin);
+				this.outputLocation = validateLocalOutput(this.getOutput(),this.isForce(),this.isContinue());
 				this.outputLocation.mkdirs();
 				this.globalStatus = new File(outputLocation,STATUS_FILE_NAME);
 				updateStats(this.globalStatus, new StatusConsumption()); // initialise the output file
@@ -174,18 +177,36 @@ public class PicSlurper extends InOutToolOptions implements Iterable<InputStream
 	List<Future<?>> futureList = new ArrayList<Future<?>>();
 	
 	void start() throws IOException, TweetTokeniserException, InterruptedException {
-		ExecutorService service = Executors.newFixedThreadPool(nThreads);
-		for (InputStream inStream : this) {
-			if(countFutures() > MAX_QUEUED_JOBS){
-				waitForFutures(service); // is this a good idea? should we skip tweets instead?
+		if(useStorm){
+			// instantiate a storm topology fed by the command line input stream
+			for (InputStream stream : this) {
+				TopologyBuilder builder = new TopologyBuilder();
+				InputStreamSpout streamSpout = new InputStreamSpout(stream);
+				builder.setSpout("stream_spout", streamSpout);
+				builder.setBolt("print", new PrintBolt()).shuffleGrouping("stream_spout");
+				LocalCluster cluster = new LocalCluster();
+				Config conf = new Config();
+		        conf.setDebug(false);
+				cluster.submitTopology("word-count", conf, builder.createTopology());
+				this.wait();
+				cluster.shutdown();
 			}
-			StreamJSONStatusList tweets = StreamJSONStatusList.read(inStream, "UTF-8");
-			for (ReadableWritableJSON status : tweets) {
-				futureList.add(service.submit(consumeStatus(status)));
-			}
+			
 		}
-		service.shutdown();
-		service.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
+		else{			
+			ExecutorService service = Executors.newFixedThreadPool(nThreads);
+			for (InputStream inStream : this) {
+				if(countFutures() > MAX_QUEUED_JOBS){
+					waitForFutures(service); // is this a good idea? should we skip tweets instead?
+				}
+				StreamJSONStatusList tweets = StreamJSONStatusList.read(inStream, "UTF-8");
+				for (ReadableWritableJSON status : tweets) {
+					futureList.add(service.submit(consumeStatus(status)));
+				}
+			}
+			service.shutdown();
+			service.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
+		}
 	}
 	
 	private void waitForFutures(ExecutorService service) {

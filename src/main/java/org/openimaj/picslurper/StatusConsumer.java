@@ -169,7 +169,7 @@ public class StatusConsumer implements Callable<StatusConsumption>{
         return conn;
 	}
 
-	static synchronized File urlToOutput(URL url, File outputLocation) throws IOException {
+	public static synchronized File urlToOutput(URL url, File outputLocation) throws IOException {
 		String urlPath = url.getProtocol() + File.separator +
 						 url.getHost() + File.separator;
 		if(!url.getPath().equals("")) urlPath += url.getPath() + File.separator;
