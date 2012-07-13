@@ -11,10 +11,9 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Properties;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ThreadPoolExecutor;
 
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
@@ -28,6 +27,10 @@ import org.openimaj.tools.FileToolsUtil;
 import org.openimaj.tools.InOutToolOptions;
 import org.openimaj.twitter.collection.StreamJSONStatusList;
 import org.openimaj.twitter.collection.StreamJSONStatusList.ReadableWritableJSON;
+import org.openimaj.util.parallel.GlobalExecutorPool.DaemonThreadFactory;
+import org.openimaj.util.parallel.partition.GrowingChunkPartitioner;
+import org.openimaj.util.parallel.Operation;
+import org.openimaj.util.parallel.Parallel;
 
 import backtype.storm.Config;
 import backtype.storm.LocalCluster;
@@ -47,7 +50,6 @@ public class PicSlurper extends InOutToolOptions implements Iterable<InputStream
 	Iterator<File> fileIterator;
 	File inputFile;
 	private static final String STATUS_FILE_NAME = "status.txt";
-	private static final int MAX_QUEUED_JOBS = 1000;
 
 	@Option(name="--encoding", aliases="-e", required=false, usage="The outputstreamwriter's text encoding", metaVar="STRING")
 	String encoding = "UTF-8";
@@ -173,7 +175,6 @@ public class PicSlurper extends InOutToolOptions implements Iterable<InputStream
 		throw new UnsupportedOperationException();
 	}
 	
-	List<Future<?>> futureList = new ArrayList<Future<?>>();
 	
 	void start() throws IOException, TweetTokeniserException, InterruptedException {
 		if(useStorm){
@@ -200,40 +201,27 @@ public class PicSlurper extends InOutToolOptions implements Iterable<InputStream
 			cluster.shutdown();
 			
 		}
-		else{			
-			ExecutorService service = Executors.newFixedThreadPool(nThreads);
+		else{
+			ThreadPoolExecutor pool = (ThreadPoolExecutor) Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors(), new DaemonThreadFactory());
 			for (InputStream inStream : this) {
-				if(countFutures() > MAX_QUEUED_JOBS){
-					waitForFutures(service); // is this a good idea? should we skip tweets instead?
-				}
 				StreamJSONStatusList tweets = StreamJSONStatusList.read(inStream, "UTF-8");
-				for (ReadableWritableJSON status : tweets) {
-					futureList.add(service.submit(consumeStatus(status)));
-				}
+				Parallel.ForEach(new GrowingChunkPartitioner<ReadableWritableJSON>(tweets), new Operation<ReadableWritableJSON>(){
+					@Override
+					public void perform(ReadableWritableJSON status) {
+						StatusConsumer consumer;
+						try {
+							consumer = consumeStatus(status);
+							consumer.call();
+						} catch (Exception e) {
+						}
+					}
+					
+				}, pool);
 			}
-			service.shutdown();
-			service.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
+			
 		}
 	}
 	
-	private void waitForFutures(ExecutorService service) {
-		while(countFutures() > MAX_QUEUED_JOBS){
-			try {
-				Thread.sleep(5000l);// 5 seconds
-			} catch (InterruptedException e) {
-			}
-		}
-	}
-
-	private int countFutures() {
-		for (Iterator<Future<?>> iterator = this.futureList.iterator(); iterator.hasNext();) {
-			Future<?> type = (Future<?>) iterator.next();
-			if(type.isDone()) iterator.remove();
-			
-		}
-		return this.futureList.size();
-	}
-
 	StatusConsumer consumeStatus(ReadableWritableJSON status) throws IOException {
 		return new StatusConsumer(status,this.stats,this.globalStatus,this.outputLocation);
 	}
@@ -275,11 +263,5 @@ public class PicSlurper extends InOutToolOptions implements Iterable<InputStream
 			System.setProperties(prop);
 		}
 	}
-
-	
-
-	
-
-	
 
 }

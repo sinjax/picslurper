@@ -54,7 +54,6 @@ public class TmblrPhotoConsumer implements SiteSpecificConsumer {
 			return images;
 			
 		} catch (Throwable e) {
-			e.printStackTrace();
 			return null;
 		}
 	}

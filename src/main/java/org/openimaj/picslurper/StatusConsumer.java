@@ -64,8 +64,16 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 				PicSlurper.updateTweets(urlOut,status);
 			}
 		}
+		List<Map<String, Object>> media = null;
 		// check entities media
-		List<Map<String,Object>> media = (List<Map<String, Object>>) ((Map<String, Object>)status.get("links")).get("media");
+		if(status.containsKey("links")){
+			Map<String, Object> links = (Map<String, Object>)status.get("links");
+			if(links.containsKey("media")){
+				media = (List<Map<String,Object>>) links.get("media");				
+			}
+			
+		}
+		if(media!=null)
 		for (Map<String, Object> map : media) {
 			if(map.containsKey("type") && map.get("type").equals("photo")){
 				File urlOut = resolveURL(new URL((String) map.get("media_url")));
@@ -77,7 +85,9 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 		// check the parsed URL entities
 		List<Map<String,Object>> urls = (List<Map<String, Object>>) ((Map<String, Object>)status.get("entities")).get("urls");
 		for (Map<String, Object> map : urls) {
-			File urlOut = resolveURL(new URL((String) map.get("expanded_url")));
+			String eurl = (String) map.get("expanded_url");
+			if(eurl == null)continue;
+			File urlOut = resolveURL(new URL(eurl));
 			if(urlOut!=null){
 				cons.nImages++;
 			}
