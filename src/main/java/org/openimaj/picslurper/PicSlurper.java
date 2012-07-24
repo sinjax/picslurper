@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Properties;
@@ -28,6 +29,7 @@ import org.openimaj.tools.InOutToolOptions;
 import org.openimaj.twitter.collection.StreamJSONStatusList;
 import org.openimaj.twitter.collection.StreamJSONStatusList.ReadableWritableJSON;
 import org.openimaj.util.parallel.GlobalExecutorPool.DaemonThreadFactory;
+import org.openimaj.util.parallel.partition.FixedSizeChunkPartitioner;
 import org.openimaj.util.parallel.partition.GrowingChunkPartitioner;
 import org.openimaj.util.parallel.Operation;
 import org.openimaj.util.parallel.Parallel;
@@ -156,7 +158,11 @@ public class PicSlurper extends InOutToolOptions implements Iterable<InputStream
 
 	@Override
 	public InputStream next() {
-		if(this.stdin) return System.in;
+		if(this.stdin) {
+			this.stdin=false;
+			return System.in;
+		}
+		if(fileIterator == null) return null;
 		if(fileIterator.hasNext())
 		{
 			this.inputFile = fileIterator.next();
@@ -202,22 +208,38 @@ public class PicSlurper extends InOutToolOptions implements Iterable<InputStream
 			
 		}
 		else{
-			ThreadPoolExecutor pool = (ThreadPoolExecutor) Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors(), new DaemonThreadFactory());
-			for (InputStream inStream : this) {
-				StreamJSONStatusList tweets = StreamJSONStatusList.read(inStream, "UTF-8");
-				Parallel.ForEach(new GrowingChunkPartitioner<ReadableWritableJSON>(tweets), new Operation<ReadableWritableJSON>(){
-					@Override
-					public void perform(ReadableWritableJSON status) {
+			if(this.nThreads == 1){
+				for (InputStream inStream : this) {
+					List<ReadableWritableJSON> tweets = StreamJSONStatusList.read(inStream, "UTF-8");
+					for (ReadableWritableJSON status: tweets) {	
 						StatusConsumer consumer;
 						try {
 							consumer = consumeStatus(status);
 							consumer.call();
 						} catch (Exception e) {
 						}
-					}
-					
-				}, pool);
+					};
+				}
 			}
+			else{
+				ThreadPoolExecutor pool = (ThreadPoolExecutor) Executors.newFixedThreadPool(this.nThreads, new DaemonThreadFactory());
+				for (InputStream inStream : this) {
+					List<ReadableWritableJSON> tweets = Collections.synchronizedList(StreamJSONStatusList.read(inStream, "UTF-8"));
+					Parallel.ForEach(new FixedSizeChunkPartitioner<ReadableWritableJSON>(tweets,1), new Operation<ReadableWritableJSON>(){
+						@Override
+						public void perform(ReadableWritableJSON status) {
+							StatusConsumer consumer;
+							try {
+								consumer = consumeStatus(status);
+								consumer.call();
+							} catch (Exception e) {
+							}
+						}
+						
+					}, pool);
+				}
+			}
+			
 			
 		}
 	}

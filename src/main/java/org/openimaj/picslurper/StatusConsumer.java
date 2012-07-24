@@ -118,7 +118,7 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 	}
 	
 	public File resolveURL(URL url) {
-		
+		System.out.print("Current url: " + url + "... ");
 		List<MBFImage> image = null;
 		for (SiteSpecificConsumer consumer : this.siteSpecific) {
 			if(consumer .canConsume(url)){
@@ -133,9 +133,10 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 					// check if there is a meta refresh, if so, try to resolve again
 					meta = getMetaRefresh(FileUtils.readall(connection.getInputStream()));
 					if(meta!=null){
+						System.out.println("Resolved! FORWARD ( ) ");
 						return resolveURL(new URL(meta));
 					}else{
-						System.out.println("Resolving url: " + url + " FAILED (text) ");
+						System.out.println("Resolved! FAILED (text) ");
 						return null;//text, can't handle it!
 					}
 				}
@@ -144,7 +145,7 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 					image = Arrays.asList(ImageUtilities.readMBF(connection.getInputStream()));
 				}
 			} catch (Throwable e) { // This input might not be an image! deal with that
-				System.out.println("Resolving url: " + url + " FAILED (read fail)");
+				System.out.println("Resolved! FAILED (read fail)");
 				return null; 
 			}
 		}
@@ -160,12 +161,12 @@ public class StatusConsumer implements Callable<StatusConsumption>{
 				File outImage = new File(outputDir,String.format("image_%d.png",n++));
 				ImageUtilities.write(mbfImage, outImage);
 			}
-			System.out.println("Resolving url: " + url + " SUCCESS");
+			System.out.println("Resolved! SUCCESS");
 			return outputDir;
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
-		System.out.println("Resolving url: " + url + " FAILED (write fail?)");
+		System.out.println("Resolved! FAILED (write fail?)");
 		return null;
 		
 	}

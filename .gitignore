@@ -1,1 +1,6 @@
 pom.xml
+.svn
+target
+.classpath
+.project
+.settings
